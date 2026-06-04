@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ribohub"
+version = "1.0.0"
+description = "Generate UCSC Genome Browser track hubs from RiboSeq bigWig files."
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Thibaut Ackaert" },
+]
+dependencies = [
+    "click",
+    "trackhub",
+]
+
+[project.urls]
+Repository = "https://github.com/thibautackaert-commits/Internship"
+
+[project.scripts]
+ribohub = "ribohub:cli"
+
+[tool.setuptools]
+py-modules = ["ribohub"]
