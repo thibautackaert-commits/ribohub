@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+venv/
+
+# Docker
+.env
+
+# RiboHub output
+hub_output/
+staged_hub*/
+
+# OS
+.DS_Store

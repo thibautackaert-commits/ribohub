@@ -1,0 +1,13 @@
+FROM quay.io/bgruening/galaxy:latest
+
+# ── Install RiboHub as a pip package ──
+COPY ribohub.py pyproject.toml /tmp/ribohub-install/
+RUN /tool_deps/_conda/bin/pip install /tmp/ribohub-install/ && \
+    rm -rf /tmp/ribohub-install/
+
+# ── Copy Galaxy tool wrapper ──
+COPY ribohub.xml /etc/galaxy/ribohub.xml
+
+# ── Startup hook: register tool in tool_conf.xml on boot ──
+COPY docker/register_tool.sh /etc/my_init.d/01_register_ribohub.sh
+RUN chmod +x /etc/my_init.d/01_register_ribohub.sh
