@@ -18,6 +18,7 @@
         #set $chars = string.ascii_lowercase + string.digits
         #set $rand_id = ''.join(random.choice($chars) for _ in range(15))
 
+        chmod 777 /export/galaxy/hub_output 2>/dev/null;
         mkdir -p '/export/galaxy/hub_output/genomebrowsertrack/$rand_id' &&
 
         /tool_deps/_conda/bin/ribohub generate
