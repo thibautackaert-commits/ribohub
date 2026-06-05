@@ -95,16 +95,11 @@
 
         <param name="metadata_filter" type="text" value="" optional="true"
                label="Filter samples from metadata (optional)"
-               help="Format: COL=VAL or COL=VAL1|VAL2 (OR), comma-separated (AND). Example: CELL_LINE=HEK293,CONDITION=High"/>
+               help="Format: COL=VAL or COL=VAL1/VAL2 (OR), comma-separated (AND). Example: CELL_LINE=HEK293,CONDITION=High"/>
 
         <param name="genome" type="select" label="Genome assembly">
             <option value="hg38" selected="true">hg38 (Human)</option>
             <option value="mm10">mm10 (Mouse)</option>
-            <option value="mm39">mm39 (Mouse)</option>
-            <option value="danRer11">danRer11 (Zebrafish)</option>
-            <option value="dm6">dm6 (Drosophila)</option>
-            <option value="sacCer3">sacCer3 (Yeast)</option>
-            <option value="rn6">rn6 (Rat)</option>
         </param>
 
         <param name="with_aggregates" type="boolean" checked="true"
@@ -149,9 +144,9 @@ Builds a Gwips track hub from sorted bigWig files produced by the RiboSeqOrg pip
 
 Three options:
 
-1. *Upload a file* — CSV (first column = SRR IDs) or plain text (one per line)
-2. *Type SRR IDs* — enter them directly, comma-separated
-3. *Metadata filter only* — select samples by properties (cell line, condition, etc.)
+1. *Upload a file*: CSV (first column = SRR IDs) or plain text (one per line)
+2. *Type SRR IDs*: enter them directly, comma-separated
+3. *Metadata filter only*: select samples by properties (cell line, condition, etc.)
 
 You can combine a sample list with a metadata filter to narrow the selection.
 
@@ -168,8 +163,8 @@ Each run generates a uniquely named hub so previous hubs are never overwritten.
 
 **Metadata filter examples**
 
-- ``CELL_LINE=HEK293`` — all HEK293 samples
-- ``CONDITION=High|Test`` — High OR Test condition
-- ``CELL_LINE=HEK293,CONDITION=High`` — HEK293 AND High condition
+- ``CELL_LINE=HEK293``= all HEK293 samples
+- ``CONDITION=High/Test``= High OR Test condition
+- ``CELL_LINE=HEK293,CONDITION=High``= HEK293 AND High condition
     ]]></help>
 </tool>
