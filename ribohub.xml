@@ -29,9 +29,9 @@
 
             ## Sample input
             #if $sample_source.source_type == "file"
-                --samples '$sample_source.sample_file'
-            #else if $sample_source.source_type == "text"
-                --samples '$sample_source.sample_text'
+            --samples '$sample_source.sample_file'
+            #else if $sample_source.source_type == "text" and str($sample_source.sample_text).strip()
+            --samples '$sample_source.sample_text'
             #end if
 
             ## Read types
