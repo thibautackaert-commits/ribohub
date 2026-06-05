@@ -1,16 +1,19 @@
 FROM quay.io/bgruening/galaxy:latest
 
-# ── Install RiboHub as a pip package ──
+# ---- Install RiboHub as a pip package ----
 COPY ribohub.py pyproject.toml /tmp/ribohub-install/
 RUN /tool_deps/_conda/bin/pip install /tmp/ribohub-install/ && \
     rm -rf /tmp/ribohub-install/
 
-# ── Copy Galaxy tool wrapper ──
+# ---- Copy Galaxy tool wrapper ----
 COPY ribohub.xml /etc/galaxy/ribohub.xml
 
-# ── Register tool on startup ──
-# Inject registration into /usr/bin/startup (runs before Galaxy boots).
-# Idempotent: only adds the line if not already present.
+# ---- Register tool on startup ----
+ARG SERVER_IP=localhost
+RUN sed -i "s|<environment_variable name=\"SERVER_IP\">localhost</environment_variable>|<environment_variable name=\"SERVER_IP\">${SERVER_IP}</environment_variable>|" /etc/galaxy/ribohub.xml
+
 COPY docker/register_tool.sh /usr/local/bin/register_ribohub.sh
 RUN chmod +x /usr/local/bin/register_ribohub.sh && \
-    sed -i '2i /usr/local/bin/register_ribohub.sh' /usr/bin/startup
+    sed -i '2i chmod 777 /export/galaxy/hub_output 2>/dev/null; /usr/local/bin/register_ribohub.sh' /usr/bin/startup
+
+RUN mkdir -p /export/galaxy/hub_output && chmod 777 /export/galaxy/hub_output
