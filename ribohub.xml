@@ -25,7 +25,8 @@
             --output-format 'single-file'
             --genome '$genome'
             --metadata '/data/metadata.csv'
-
+            --base-url 'http://\$SERVER_IP/data'
+        
             ## Sample input
             #if $sample_source.source_type == "file"
             --samples '$sample_source.sample_file'
