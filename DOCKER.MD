@@ -119,11 +119,3 @@ docker exec ribohub-galaxy grep ribohub /etc/galaxy/tool_conf.xml
 ```bash
 docker exec -u root ribohub-galaxy chmod 777 /export/galaxy/hub_output
 ```
-
-**GWIPS returns 403**: GWIPS may block external URLs. Contact your GWIPS admin to whitelist the server IP.
-
-**UCSC can't load tracks**: Check Apache CORS:
-```bash
-curl -I http://localhost/genomebrowsertrack/
-```
-Look for `Access-Control-Allow-Origin: *`.
