@@ -23,3 +23,8 @@ if ! grep -q "ribohub.xml" "$TOOL_CONF"; then
 else
     echo "[RiboHub] Already registered in $TOOL_CONF"
 fi
+
+# Fix permissions on mounted data so Galaxy's job runner can read them
+chmod -R 755 /data/bigwig 2>/dev/null || true
+chmod 644 /data/metadata.csv 2>/dev/null || true
+chmod 777 /export/galaxy/hub_output 2>/dev/null || true
