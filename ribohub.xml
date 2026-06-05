@@ -1,34 +1,41 @@
-<tool id="ribohub_generate" name="RiboHub: Generate Gwips Track Hub" version="2.0.0" profile="21.05">
+<tool id="ribohub_generate" name="RiboHub: Generate Gwips Track Hub" version="2.1.0" profile="21.05">
     <description>Build a Gwips RiboSeq track hub from bigWig and bigBed files</description>
 
     <requirements>
-        <requirement type="package" version="0.1.0">ribohub</requirement>
+        <requirement type="package" version="1.0.0">ribohub</requirement>
     </requirements>
 
+    <!--
+      Environment variables injected into every job script.
+      RIBOHUB_DATA_DIR and RIBOHUB_BASE_URL are read by Click's envvar= parameter,
+      so ribohub picks them up automatically without needing command-line flags.
+      SERVER_IP is used in the echo URL output.
+      The Dockerfile replaces 'localhost' with the real IP at build time via sed.
+    -->
     <environment_variables>
-        <environment_variable name="RIBOHUB_OUTPUT_DIR" strip="true">./hub_output</environment_variable>
+        <environment_variable name="RIBOHUB_DATA_DIR">/data/bigwig</environment_variable>
+        <environment_variable name="RIBOHUB_BASE_URL">http://localhost/data</environment_variable>
         <environment_variable name="SERVER_IP">localhost</environment_variable>
     </environment_variables>
 
     <command detect_errors="exit_code"><![CDATA[
+        ## Generate a random 15-character folder ID so each run gets a unique URL
         #import uuid
         #set $rand_id = str(uuid.uuid4())[:15]
 
+        ## Ensure the output directory is writable and create the unique subfolder
         chmod 777 /export/galaxy/hub_output 2>/dev/null;
-        mkdir -p '/export/galaxy/hub_output/genomebrowsertrack/$rand_id' &&
+        mkdir -p /export/galaxy/hub_output/genomebrowsertrack/${rand_id} &&
 
+        ## Run RiboHub
         /tool_deps/_conda/bin/ribohub generate
+            --output-dir /export/galaxy/hub_output/genomebrowsertrack/${rand_id}
+            --output-format single-file
+            --genome '$genome'
+            --metadata /data/metadata.csv
             #if $samples
                 --samples '$samples'
             #end if
-            --output-dir '/export/galaxy/hub_output/genomebrowsertrack/$rand_id'
-            --output-format 'single-file'
-            --genome '$genome'
-            --metadata '/data/metadata.csv'
-            --data-dir '/data/bigwig'
-            --base-url 'http://\$SERVER_IP/data'
-
-            ## Track selection
             #set $kind_list = []
             #if $kinds.kind_all
                 #silent $kind_list.append("all")
@@ -42,122 +49,79 @@
             #if $kind_list
                 --kinds '${",".join($kind_list)}'
             #end if
-
             #if $with_aggregates
                 --with-aggregates
             #else
                 --no-aggregates
             #end if
-
             #if $with_regions
                 --with-regions
             #else
                 --no-regions
             #end if
-
-            ## Metadata filter
             #if $metadata_filter
                 --filter '$metadata_filter'
             #end if
-
-            ## Hub name
-            #if $hub_name
+            #if str($hub_name).strip()
                 --hub-name '$hub_name'
             #end if
-
-            ## Colors
-            #if str($colors.color_fwd) != "#E69F00"
-                --color-fwd '$colors.color_fwd'
-            #end if
-            #if str($colors.color_rev) != "#0072B2"
-                --color-rev '$colors.color_rev'
-            #end if
-            #if str($colors.color_fwd_multi) != "#F0C566"
-                --color-fwd-multi '$colors.color_fwd_multi'
-            #end if
-            #if str($colors.color_rev_multi) != "#56B4E9"
-                --color-rev-multi '$colors.color_rev_multi'
-            #end if
-
             $dry_run
 
-        ## Output URL to Galaxy history
+        ## Write the public hub URL to Galaxy's output dataset
         #if not $dry_run
-            && echo "http://\$SERVER_IP/genomebrowsertrack/${rand_id}/RiboSeqHub.hub.txt" > '$hub_output'
+            #set $hub_label = str($hub_name).strip() if str($hub_name).strip() else "RiboSeqHub"
+            && echo "http://\${SERVER_IP}/genomebrowsertrack/${rand_id}/${hub_label}.hub.txt" > '$hub_output'
         #end if
     ]]></command>
 
     <inputs>
-        <param name="samples" type="data" format="csv,txt" optional="true" label="Sample list"
-               help="CSV (first column = SRR IDs) or plain text (one SRR per line). Optional if using a metadata filter below."/>
+        <param name="samples" type="data" format="csv,txt" optional="true"
+               label="Sample list"
+               help="CSV (first column = SRR IDs) or plain text (one SRR per line). Leave empty if using metadata filter only."/>
 
         <param name="metadata_filter" type="text" value="" optional="true"
                label="Filter samples from metadata (optional)"
-               help="Select samples by metadata column values instead of (or alongside) a sample list.
-                     Format: COL=VAL or COL=VAL1|VAL2 (OR within a field), comma-separated (AND across fields).
-                     Example: CONDITION=High|Test,CELL_LINE=HEK293.
-                     Available columns: ScientificName, LIBRARYTYPE, TISSUE, CELL_LINE, CONDITION, INHIBITOR, TIMEPOINT, REPLICATE."/>
+               help="Select samples by metadata values. Format: COL=VAL, COL=A|B (OR within field), comma-separated (AND across fields). Example: CELL_LINE=HEK293,CONDITION=High"/>
 
         <param name="genome" type="select" label="Genome assembly">
             <option value="hg38" selected="true">hg38 (Human)</option>
             <option value="mm10">mm10 (Mouse)</option>
+            <option value="mm39">mm39 (Mouse)</option>
+            <option value="danRer11">danRer11 (Zebrafish)</option>
+            <option value="dm6">dm6 (Drosophila)</option>
+            <option value="sacCer3">sacCer3 (Yeast)</option>
+            <option value="rn6">rn6 (Rat)</option>
         </param>
 
         <param name="with_aggregates" type="boolean" checked="true"
                truevalue="--with-aggregates" falsevalue=""
                label="Include strand overlays"
-               help="Per-sample transparent overlay of forward + reverse strands. Recommended for quick visual comparison."/>
+               help="Per-sample transparent overlay of forward + reverse strands."/>
 
         <param name="with_regions" type="boolean" checked="true"
                truevalue="--with-regions" falsevalue=""
                label="Include region annotations"
-               help="Include bigBed region tracks (e.g. ORFs) if available for the sample."/>
+               help="Include bigBed region tracks (e.g. ORFs) if available."/>
 
         <section name="kinds" title="Read types to include" expanded="true">
-            <param name="kind_all" type="boolean" checked="true"
-                   label="All reads"
+            <param name="kind_all" type="boolean" checked="true" label="All reads"
                    help="Combined unique + multimapped signal."/>
-            <param name="kind_unique" type="boolean" checked="true"
-                   label="Unique reads"
+            <param name="kind_unique" type="boolean" checked="true" label="Unique reads"
                    help="Uniquely mapped reads only."/>
-            <param name="kind_multi" type="boolean" checked="true"
-                   label="Multimapped reads"
+            <param name="kind_multi" type="boolean" checked="true" label="Multimapped reads"
                    help="Multimapped reads only."/>
         </section>
 
         <param name="hub_name" type="text" value="" optional="true"
                label="Hub name (optional)"
-               help="Default: RiboSeqHub. Used as the filename and Gwips hub identifier. No spaces.">
+               help="Default: RiboSeqHub. Changes the hub filename and UCSC identifier. No spaces.">
             <validator type="regex" message="No spaces allowed">^(\S+)?$</validator>
         </param>
-
-        <section name="colors" title="Strand colors" expanded="false">
-            <param name="color_fwd" type="text" value="#E69F00"
-                   label="Forward strand"
-                   help="Hex color for forward strand tracks.">
-                <validator type="regex" message="Must be a hex color (e.g. #E69F00)">^#[0-9A-Fa-f]{6}$</validator>
-            </param>
-            <param name="color_rev" type="text" value="#0072B2"
-                   label="Reverse strand"
-                   help="Hex color for reverse strand tracks.">
-                <validator type="regex" message="Must be a hex color (e.g. #0072B2)">^#[0-9A-Fa-f]{6}$</validator>
-            </param>
-            <param name="color_fwd_multi" type="text" value="#F0C566"
-                   label="Forward multimapped"
-                   help="Hex color for forward multimapped tracks.">
-                <validator type="regex" message="Must be a hex color (e.g. #F0C566)">^#[0-9A-Fa-f]{6}$</validator>
-            </param>
-            <param name="color_rev_multi" type="text" value="#56B4E9"
-                   label="Reverse multimapped"
-                   help="Hex color for reverse multimapped tracks.">
-                <validator type="regex" message="Must be a hex color (e.g. #56B4E9)">^#[0-9A-Fa-f]{6}$</validator>
-            </param>
-        </section>
 
         <param name="dry_run" type="boolean" checked="false"
                truevalue="--dry-run" falsevalue=""
                label="Dry run"
-               help="Preview what would be built without writing any files. Useful for checking sample counts before a long build."/>
+               help="Preview what would be built without writing any files."/>
     </inputs>
 
     <outputs>
@@ -169,55 +133,32 @@
     <help><![CDATA[
 **RiboHub: Generate Gwips Track Hub**
 
-Builds a Gwips Genome Browser track hub from sorted bigWig files produced by the
-RiboSeqOrg pipeline. Designed for use with GWIPS-viz and RiboGalaxy.
+Builds a Gwips track hub from sorted bigWig files produced by the RiboSeqOrg pipeline.
 
 -----
 
-**What you need**
+**How to use**
 
-Upload a sample list, a CSV with SRR IDs in the first column or a plain text
-file with one SRR per line. Alternatively, use the metadata filter to select
-samples by their properties (e.g. cell line, condition, tissue) without needing
-a file. You can also combine both: upload a sample list and apply a filter to
-narrow it further.
-
-The server already knows where the bigWig files live and how to serve them to Gwips.
+Upload a sample list (CSV or text file with SRR IDs), or use the metadata filter
+to select samples by their properties, or both. Leave the sample list empty and
+just fill in the filter to select by metadata only.
 
 -----
 
-**Track types**
+**What you get**
 
-- *Strand overlays* = forward and reverse strands rendered as a transparent
-  overlay per sample. Best for quick visual inspection.
-- *Region annotations* = bigBed tracks (e.g. ORFs) displayed alongside signal,
-  if available for your samples.
-- *Read types* = choose which signal to include: all reads (combined),
-  uniquely mapped only or multimapped only. All three are on by default.
+A **Hub URL** in your Galaxy history. Copy it and paste into GWIPS-viz under
+My Data -> Track Hubs -> My Hubs.
 
------
-
-**Customization**
-
-- *Hub name* = change the Gwips hub identifier (default: RiboSeqHub).
-- *Strand colors* = set custom hex colors under "Strand colors". Defaults are
-  Okabe-Ito colorblind-safe: orange forward, blue reverse.
-
------
-
-**Dry run**
-
-Enable "Dry run" to see how many samples were found and matched metadata
-without building anything. Useful for large sample sets.
+Each run generates a unique URL so previous hubs are never overwritten.
 
 -----
 
 **Metadata filter examples**
 
-- ``CELL_LINE=HEK293`` = all HEK293 samples
-- ``CONDITION=High|Test`` = samples where condition is High OR Test
-- ``CELL_LINE=HEK293,CONDITION=High`` = HEK293 AND High condition
-- ``TISSUE=Kidney,LIBRARYTYPE=Ribo-Seq`` = kidney tissue Ribo-Seq samples
+- ``CELL_LINE=HEK293`` — all HEK293 samples
+- ``CONDITION=High|Test`` — High OR Test condition
+- ``CELL_LINE=HEK293,CONDITION=High`` — HEK293 AND High condition
+- ``TISSUE=Kidney,LIBRARYTYPE=Ribo-Seq`` — kidney Ribo-Seq samples
     ]]></help>
-
 </tool>
