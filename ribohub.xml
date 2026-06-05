@@ -9,26 +9,23 @@
       Server-side config: set these in the Galaxy Docker container env.
       Users never need to see or touch these.
         RIBOHUB_DATA_DIR   - root directory of sorted bigWig files
-        RIBOHUB_BASE_URL   - public URL where  Gwips can reach the bigWigs
         RIBOHUB_METADATA   - path to the RiboSeqOrg metadata CSV
     -->
-    <environment_variables>
-        <environment_variable name="RIBOHUB_OUTPUT_DIR" strip="true">./hub_output</environment_variable>
-    </environment_variables>
 
     <command detect_errors="exit_code"><![CDATA[
-        ribohub generate
+        #import datetime
+        #set $ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        #set $hub_id = "RiboSeqHub_" + $ts
+        /tool_deps/_conda/bin/ribohub generate
+            --hub-name '$hub_id'
             #if $samples
                 --samples '$samples'
             #end if
-            --output-dir './hub_output'
+            --output-dir '/export/galaxy/hub_output'
             --output-format 'single-file'
             --genome '$genome'
 
             ## Metadata: use server default from env, or skip if not configured
-            #if $RIBOHUB_METADATA
-                --metadata '$RIBOHUB_METADATA'
-            #end if
 
             ## Track selection
             #set $kind_list = []
@@ -67,26 +64,14 @@
                 --hub-name '$hub_name'
             #end if
 
-            ## Colors
-            #if str($colors.color_fwd) != "#E69F00"
-                --color-fwd '$colors.color_fwd'
-            #end if
-            #if str($colors.color_rev) != "#0072B2"
-                --color-rev '$colors.color_rev'
-            #end if
-            #if str($colors.color_fwd_multi) != "#F0C566"
-                --color-fwd-multi '$colors.color_fwd_multi'
-            #end if
-            #if str($colors.color_rev_multi) != "#56B4E9"
-                --color-rev-multi '$colors.color_rev_multi'
-            #end if
+            --metadata '/data/metadata.csv'
 
             $dry_run
 
         ## Copy output to Galaxy history
         #if not $dry_run
             #set $hub_name_val = $hub_name if $hub_name else "RiboSeqHub"
-            && cp './hub_output/${hub_name_val}.hub.txt' '$hub_output'
+            && echo "http://\$SERVER_IP/hubs/${hub_id}.hub.txt" > '$hub_output'
         #end if
     ]]></command>
 
@@ -136,29 +121,6 @@
                help="Default: RiboSeqHub. Used as the filename and  Gwips hub identifier. No spaces.">
             <validator type="regex" message="No spaces allowed">^(\S+)?$</validator>
         </param>
-
-        <section name="colors" title="Strand colors" expanded="false">
-            <param name="color_fwd" type="text" value="#E69F00"
-                   label="Forward strand"
-                   help="Hex color for forward strand tracks.">
-                <validator type="regex" message="Must be a hex color (e.g. #E69F00)">^#[0-9A-Fa-f]{6}$</validator>
-            </param>
-            <param name="color_rev" type="text" value="#0072B2"
-                   label="Reverse strand"
-                   help="Hex color for reverse strand tracks.">
-                <validator type="regex" message="Must be a hex color (e.g. #0072B2)">^#[0-9A-Fa-f]{6}$</validator>
-            </param>
-            <param name="color_fwd_multi" type="text" value="#F0C566"
-                   label="Forward multimapped"
-                   help="Hex color for forward multimapped tracks.">
-                <validator type="regex" message="Must be a hex color (e.g. #F0C566)">^#[0-9A-Fa-f]{6}$</validator>
-            </param>
-            <param name="color_rev_multi" type="text" value="#56B4E9"
-                   label="Reverse multimapped"
-                   help="Hex color for reverse multimapped tracks.">
-                <validator type="regex" message="Must be a hex color (e.g. #56B4E9)">^#[0-9A-Fa-f]{6}$</validator>
-            </param>
-        </section>
 
         <param name="dry_run" type="boolean" checked="false"
                truevalue="--dry-run" falsevalue=""

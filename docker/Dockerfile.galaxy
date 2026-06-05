@@ -8,6 +8,9 @@ RUN /tool_deps/_conda/bin/pip install /tmp/ribohub-install/ && \
 # ── Copy Galaxy tool wrapper ──
 COPY ribohub.xml /etc/galaxy/ribohub.xml
 
-# ── Startup hook: register tool in tool_conf.xml on boot ──
-COPY docker/register_tool.sh /etc/my_init.d/01_register_ribohub.sh
-RUN chmod +x /etc/my_init.d/01_register_ribohub.sh
+# ── Register tool on startup ──
+# Inject registration into /usr/bin/startup (runs before Galaxy boots).
+# Idempotent: only adds the line if not already present.
+COPY docker/register_tool.sh /usr/local/bin/register_ribohub.sh
+RUN chmod +x /usr/local/bin/register_ribohub.sh && \
+    sed -i '2i /usr/local/bin/register_ribohub.sh' /usr/bin/startup
