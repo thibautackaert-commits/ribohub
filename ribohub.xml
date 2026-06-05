@@ -9,6 +9,7 @@
         <environment_variable name="RIBOHUB_DATA_DIR">/data/bigwig</environment_variable>
         <environment_variable name="RIBOHUB_METADATA">/data/metadata.csv</environment_variable>
         <environment_variable name="RIBOHUB_OUTPUT_DIR">/export/galaxy/hub_output</environment_variable>
+        <environment_variable name="SERVER_IP">localhost</environment_variable>
     </environment_variables>
 
     <command detect_errors="exit_code"><![CDATA[
