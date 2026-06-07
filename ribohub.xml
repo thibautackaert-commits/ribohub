@@ -13,15 +13,15 @@
     -->
 
     <command detect_errors="exit_code"><![CDATA[
-        #import datetime
-        #set $ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        #set $hub_id = "RiboSeqHub_" + $ts
+        #import uuid
+        #set $rand_id = str(uuid.uuid4())[:15]
+        chmod 777 /export/galaxy/hub_output 2>/dev/null || true;
+        mkdir -p /export/galaxy/hub_output/genomebrowsertrack/${rand_id} &&
         /tool_deps/_conda/bin/ribohub generate
-            --hub-name '$hub_id'
             #if $samples
                 --samples '$samples'
             #end if
-            --output-dir '/export/galaxy/hub_output'
+            --output-dir /export/galaxy/hub_output/genomebrowsertrack/${rand_id}
             --output-format 'single-file'
             --genome '$genome'
 
@@ -65,13 +65,14 @@
             #end if
 
             --metadata '/data/metadata.csv'
-
+            --data-dir /data/bigwig
+            --base-url http://localhost/data
             $dry_run
 
         ## Copy output to Galaxy history
         #if not $dry_run
             #set $hub_name_val = $hub_name if $hub_name else "RiboSeqHub"
-            && echo "http://\$SERVER_IP/hubs/${hub_id}.hub.txt" > '$hub_output'
+            && echo "http://localhost/genomebrowsertrack/${rand_id}/${hub_name_val}.hub.txt" > '$hub_output'
         #end if
     ]]></command>
 

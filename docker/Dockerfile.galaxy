@@ -14,3 +14,5 @@ COPY ribohub.xml /etc/galaxy/ribohub.xml
 COPY docker/register_tool.sh /usr/local/bin/register_ribohub.sh
 RUN chmod +x /usr/local/bin/register_ribohub.sh && \
     sed -i '2i /usr/local/bin/register_ribohub.sh' /usr/bin/startup
+RUN sed -i '2i chown -R galaxy:galaxy /export/galaxy/hub_output 2>/dev/null' /usr/bin/startup
+RUN sed -i '2i sed -i "s|/home/galaxy/venv/bin/activate|/galaxy_venv/bin/activate|g" /etc/galaxy/job_conf.xml 2>/dev/null' /usr/bin/startup
