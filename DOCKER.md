@@ -1,7 +1,7 @@
 # Docker Setup
 
 Runs RiboHub as a Galaxy tool with automatic hub serving via Apache.
-Galaxy generates track hubs, Apache serves them — one `docker compose up` and you're live.
+Galaxy generates track hubs, Apache serves them, one `docker compose up` and you're live.
 
 ## Architecture
 
