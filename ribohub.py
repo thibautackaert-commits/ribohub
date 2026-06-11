@@ -116,15 +116,15 @@ class BuildContext:
     kinds: frozenset[str]                  # which kinds to include: subset of {all, unique, multi}
     with_aggregates: bool
     with_regions: bool                     # whether to include bigBed region tracks
-
+    auto_scale: bool                       # True = UCSC autoScale; False = fixed viewLimits
 
 # ----- defaults (informative; runtime values come from CLI) ----------------
 
 DEFAULT_COLORS: dict[str, str] = {
-    "fwd":       "#E69F00",   # orange
-    "rev":       "#0072B2",   # deep sky blue
-    "fwd_multi": "#F0C566",   # light orange
-    "rev_multi": "#56B4E9",   # light sky blue
+    "fwd":       "#003399",   # navy blue
+    "rev":       "#CC5500",   # burnt orange
+    "fwd_multi": "#336699",   # steel blue
+    "rev_multi": "#E68A00",   # amber
 }
 DEFAULT_REGION_COLOR: str = "#2E8B57"  # sea green, distinct from signal colors
 
@@ -141,13 +141,15 @@ LABEL_FIELDS: tuple[str, ...] = (
     "CELL_LINE",
     "CONDITION",
     "INHIBITOR",
-    "TIMEPOINT",
 )
 SUBGROUP_FIELDS: tuple[str, ...] = (
     "TISSUE",
     "CELL_LINE",
     "CONDITION",
     "INHIBITOR",
+    "Stress",
+    "GENE",
+    "FRACTION",
 )
 # SRR ID column name in RiboSeqOrg metadata CSV.
 SRR_COLUMN: str = "Run"
@@ -276,13 +278,13 @@ def parse_filter(value: str) -> dict[str, list[str]]:
 
         Syntax:
         COL=VAL             single value
-        COL=VAL1|VAL2       OR within a field
+        COL=VAL1/VAL2       OR within a field
         COL=X,COL2=Y        AND across fields (comma-separated)
 
     Examples
     --------
     "CONDITION=High"                  -> {"CONDITION": ["High"]}
-    "CONDITION=High|Test"             -> {"CONDITION": ["High", "Test"]}
+    "CONDITION=High/Test"             -> {"CONDITION": ["High", "Test"]}
     "CONDITION=High,CELL_LINE=HEK293" -> {"CONDITION": ["High"], "CELL_LINE": ["HEK293"]}
 
     Raises click.BadParameter on malformed input so the CLI prints a clean
@@ -297,12 +299,12 @@ def parse_filter(value: str) -> dict[str, list[str]]:
         if "=" not in pair:
             raise click.BadParameter(
                 f"--filter: invalid token {pair!r}. "
-                f"Expected COL=VAL or COL=VAL1|VAL2.\n"
-                f"Example: --filter \"CONDITION=High|Test,CELL_LINE=HEK293\""
+                f"Expected COL=VAL or COL=VAL1/VAL2.\n"
+                f"Example: --filter \"CONDITION=High/Test,CELL_LINE=HEK293\""
             )
         col, vals = pair.split("=", 1)     # split on first "=" only, values may contain "="
         col = col.strip()
-        parsed_vals = [v.strip() for v in vals.split("|") if v.strip()]  # "|" = OR within field
+        parsed_vals = [v.strip() for v in vals.split("/") if v.strip()]  # "/" = OR within field
         if not col or not parsed_vals:
             raise click.BadParameter(
                 f"--filter: empty column or value in {pair!r}."
@@ -438,7 +440,12 @@ def _has_value(value: str | None) -> bool:
     """Return True if value is non-empty and not a known null sentinel."""
     if value is None:
         return False
-    return value.strip().lower() not in NULL_VALUES
+    return value.strip().lower() 
+    if stripped in NULL_VALUES: 
+        return False
+    if stripped.startswith("nana"):
+        return False
+    return True
 
 
 def _clean_value(col: str, val: str) -> str:
@@ -701,7 +708,6 @@ def collect_subgroup_vocabularies(
 
     # Structural: sample
     samples = sorted(found.keys())
-    vocab["sample"] = {s: s for s in samples}
 
     # Structural: strand (single-value rule below may drop it)
     strand_tags_present: set[str] = set()
@@ -740,6 +746,12 @@ def collect_subgroup_vocabularies(
             tag = _sanitize_tag(val)
             seen_tags.setdefault(tag, val.strip())  # first occurrence sets the display label
         if seen_tags:
+            has_missing = any(
+                not _has_value((metadata.get(srr_id) or {}).get(col))
+                for srr_id in samples
+            )
+            if has_missing:
+                seen_tags["na"] = "N/A"
             vocab[dim] = seen_tags
 
     # Drop dimensions with only one value, they can't filter anything.
@@ -783,9 +795,6 @@ def _subgroup_assignment_for_subtrack(
     out: dict[str, str] = {}
 
     # --- structural dimensions ---
-    if "sample" in vocab:
-        out["sample"] = srr_id
-
     if "strand" in vocab:
         out["strand"] = "fwd" if file_key.strand == "forward" else "rev"
 
@@ -800,6 +809,8 @@ def _subgroup_assignment_for_subtrack(
         val = (metadata_row or {}).get(col)
         if _has_value(val):
             out[dim] = _sanitize_tag(val)
+        elif dim in vocab:
+            out[dim] = "na"
 
     return out
 
@@ -905,10 +916,11 @@ def build_composite_trackdb(
         long_label="All RiboSeq samples (filter by subgroups)",
         visibility="full",
         viewLimits=VIEW_LIMITS,
-        autoScale="off",
+        autoScale="on" if ctx.auto_scale else "off",
         maxHeightPixels="100:50:8",
     )
-
+    if not ctx.auto_scale:
+        comp_kwargs["viewLimits"] = VIEW_LIMITS
     comp = trackhub.CompositeTrack(**comp_kwargs)
 
     # Attach subgroup definitions and derived header lines (dimensions, filterComposite)
@@ -921,7 +933,7 @@ def build_composite_trackdb(
         if filt:
             comp.add_params(filterComposite=filt)
     # sortOrder isn't derived by the library, set explicitly
-    sort_dims = [d for d in ("sample", "condition", "replicate", "strand", "kind")
+    sort_dims = [d for d in ("strand", "kind", "condition", "tissue", "cell_line", "inhibitor")
                  if d in vocab]
     if sort_dims:
         comp.add_params(sortOrder=" ".join(f"{d}=+" for d in sort_dims))
@@ -981,9 +993,10 @@ def build_aggregate(
         showSubtrackColorOnUi="on",
         visibility="full",
         viewLimits=VIEW_LIMITS,
-        autoScale="off",
+        autoScale="group",
         maxHeightPixels="100:50:8",
     )
+
     agg.add_subtrack(trackhub.Track(
         name=trackhub.helpers.sanitize(f"{srr_id}_agg_forward"),
         url=f"{ctx.base_url}/{fwd}",
@@ -992,6 +1005,7 @@ def build_aggregate(
         long_label=f"{srr_id} forward",
         color=ctx.colors["fwd"],
     ))
+
     agg.add_subtrack(trackhub.Track(
         name=trackhub.helpers.sanitize(f"{srr_id}_agg_reverse"),
         url=f"{ctx.base_url}/{rev}",
@@ -1054,6 +1068,25 @@ def build_region_container(
     if not regions:
         return None
 
+def build_aggregate_container(
+    aggregates: list[trackhub.AggregateTrack],
+    container_name:str = "ribohub_aggregates",
+) -> trackhub.SuperTrack | None:
+    if not aggregates:
+        return None
+
+    super_track = trackhub.SuperTrack(
+        name=trackhub.helpers.sanitize(container_name),
+        short_label="Strand overlays",
+        long_label="Per-sample strand-overlay aggregates",
+    )
+
+    for agg in aggregates:
+        super_track.add_tracks(agg)
+    
+    log.info(f"Built aggregate container with {len(aggregates)} track(s).")
+    return super_track
+    
     super_track = trackhub.SuperTrack(
         name=trackhub.helpers.sanitize(container_name),
         short_label="Region annotations",
@@ -1202,8 +1235,10 @@ def write_single_file_hub(
         _render_composite(composite, metadata_map or {}),
         "",
     ]
-    for agg in aggregates:
-        lines.append(_render_aggregate(agg))
+
+    agg_container = build_aggregate_container(aggregates)
+    if agg_container is not None:
+        lines.append(_render_region_container(agg_container))
         lines.append("")
 
     if region_container is not None:
@@ -1255,9 +1290,10 @@ def write_directory_hub(
         _render_composite(composite, metadata_map or {}),
         "",
     ]
-    for agg in aggregates:
-        trackdb_lines.append(_render_aggregate(agg))
-        trackdb_lines.append("")
+    agg_container = build_aggregate_container(aggregates)
+    if agg_container is not None:
+        lines.append(_render_region_container(agg_container))
+        lines.append("")
 
     if region_container is not None:
         trackdb_lines.append(_render_region_container(region_container))
@@ -1329,6 +1365,9 @@ def cli(ctx: click.Context, verbose: bool) -> None:
               help="Exit non-zero if any requested sample is missing or partial.")
 @click.option("--dry-run", is_flag=True,
               help="Report what would be built without writing the hub.")
+@click.option("--auto-scale/--no-auto-scale", default=True, show_default=True,
+              help="Let UCSC auto-scale the y-axis to the visible signel. "
+                   "When off, uses fixed viewLimits (-127:127).")
 # Colors
 @click.option("--color-fwd", default=DEFAULT_COLORS["fwd"], show_default=True,
               help="Forward strand color (hex).")
@@ -1354,6 +1393,7 @@ def generate(
     with_regions: bool,
     strict: bool,
     dry_run: bool,
+    auto_scale : bool,
     color_fwd: str,
     color_rev: str,
     color_fwd_multi: str,
@@ -1398,6 +1438,7 @@ def generate(
         kinds=parsed_kinds,
         with_aggregates=with_aggregates,
         with_regions=with_regions,
+        auto_scale=auto_scale,
     )
 
     # ---- stage 0: validate --samples / --filter mutual requirements ----
