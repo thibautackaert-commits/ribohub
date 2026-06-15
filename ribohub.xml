@@ -1,164 +1,334 @@
-<tool id="ribohub_generate" name="RiboHub: Generate Gwips Track Hub" version="2.1.0" profile="21.05">
-    <description>Build a Gwips RiboSeq track hub from bigWig and bigBed files</description>
+<tool id="ribohub_generate" name="RiboHub: Generate GWIPS Track Hub" version="1.0.0" profile="21.05">
+    <description>Build a GWIPS-viz compatible RiboSeq track hub from bigWig and bigBed files</description>
 
     <requirements>
-        <requirement type="package" version="1.0.0">ribohub</requirement>
+        <requirement type="package" version="0.1.0">ribohub</requirement>
     </requirements>
 
     <!--
-      Environment variables injected into every job script.
-      RIBOHUB_DATA_DIR and RIBOHUB_BASE_URL are read by Click's envvar= parameter,
-      so ribohub picks them up automatically without needing command-line flags.
-      SERVER_IP is used in the echo URL output.
-      The Dockerfile replaces 'localhost' with the real IP at build time via sed.
+      Server-side config: set these in the Galaxy Docker container env.
+      Users never need to see or touch these.
+        RIBOHUB_DATA_DIR   - root directory of sorted bigWig files
+        RIBOHUB_METADATA   - path to the RiboSeqOrg metadata CSV
     -->
-    <environment_variables>
-        <environment_variable name="RIBOHUB_DATA_DIR">/data/bigwig</environment_variable>
-        <environment_variable name="RIBOHUB_BASE_URL">http://localhost/data</environment_variable>
-        <environment_variable name="SERVER_IP">localhost</environment_variable>
-    </environment_variables>
 
     <command detect_errors="exit_code"><![CDATA[
-        ## Generate a random 15-character folder ID so each run gets a unique URL
         #import uuid
         #set $rand_id = str(uuid.uuid4())[:15]
-
-        ## Ensure the output directory is writable and create the unique subfolder
-        chmod 777 /export/galaxy/hub_output 2>/dev/null;
+        chmod 777 /export/galaxy/hub_output 2>/dev/null || true;
         mkdir -p /export/galaxy/hub_output/genomebrowsertrack/${rand_id} &&
 
-        ## Run RiboHub
-        /tool_deps/_conda/bin/ribohub generate
-            --output-dir /export/galaxy/hub_output/genomebrowsertrack/${rand_id}
-            --output-format single-file
-            --genome '$genome'
-            --metadata /data/metadata.csv
-            #if $samples
-                --samples '$samples'
+        ## If user typed SRR IDs directly, write them to a temp file
+        #if str($sample_source.source_type) == "typed"
+            #if $sample_source.srr_text.strip()
+                echo '${sample_source.srr_text}' | tr ',' '\n' | tr ' ' '\n' | sed '/^$/d' > '$__new_file_path__/srr_list.txt' &&
             #end if
+        #end if
+
+        /tool_deps/_conda/bin/ribohub generate
+
+            ## Sample input
+            #if str($sample_source.source_type) == "file" and $sample_source.samples
+                --samples '$sample_source.samples'
+            #elif str($sample_source.source_type) == "typed" and $sample_source.srr_text.strip()
+                --samples '$__new_file_path__/srr_list.txt'
+            #end if
+
+            --output-dir /export/galaxy/hub_output/genomebrowsertrack/${rand_id}
+            --output-format 'single-file'
+            --genome '$genome'
+
+            ## Track selection
             #set $kind_list = []
-            #if $kinds.kind_all
+            #if $tracks.kinds.kind_all
                 #silent $kind_list.append("all")
             #end if
-            #if $kinds.kind_unique
+            #if $tracks.kinds.kind_unique
                 #silent $kind_list.append("unique")
             #end if
-            #if $kinds.kind_multi
+            #if $tracks.kinds.kind_multi
                 #silent $kind_list.append("multi")
             #end if
             #if $kind_list
                 --kinds '${",".join($kind_list)}'
             #end if
-            #if $with_aggregates
+
+            #if $tracks.with_aggregates
                 --with-aggregates
             #else
                 --no-aggregates
             #end if
-            #if $with_regions
+
+            #if $tracks.with_regions
                 --with-regions
             #else
                 --no-regions
             #end if
+
+            ## Metadata filter
             #if $metadata_filter
                 --filter '$metadata_filter'
             #end if
-            #if str($hub_name).strip()
-                --hub-name '$hub_name'
-            #end if
-            $dry_run
 
-        ## Write the public hub URL to Galaxy's output dataset
-        #if not $dry_run
-            #set $hub_label = str($hub_name).strip() if str($hub_name).strip() else "RiboSeqHub"
-            && echo "http://\${SERVER_IP}/genomebrowsertrack/${rand_id}/${hub_label}.hub.txt" > '$hub_output'
+            ## Hub identity
+            #if $options.hub_name
+                --hub-name '$options.hub_name'
+            #end if
+
+            --metadata '/data/metadata.csv'
+            --data-dir /data/bigwig
+            --base-url http://localhost/data
+            $options.dry_run
+
+        ## Copy output to Galaxy history
+        #if not $options.dry_run
+            #set $hub_name_val = $options.hub_name if $options.hub_name else "RiboSeqHub"
+            && echo "http://localhost/genomebrowsertrack/${rand_id}/${hub_name_val}.hub.txt" > '$hub_output'
         #end if
     ]]></command>
 
     <inputs>
-        <param name="samples" type="data" format="csv,txt" optional="true"
-               label="Sample list"
-               help="CSV (first column = SRR IDs) or plain text (one SRR per line). Leave empty if using metadata filter only."/>
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!--              SAMPLE SELECTION               -->
+        <!-- ═══════════════════════════════════════════ -->
+
+        <conditional name="sample_source">
+            <param name="source_type" type="select" label="How do you want to provide sample IDs?">
+                <option value="file">Upload a sample list file</option>
+                <option value="typed" selected="true">Type SRR accessions directly</option>
+                <option value="filter_only">Use metadata filter only (no sample list)</option>
+            </param>
+
+            <when value="file">
+                <param name="samples" type="data" format="csv,txt" label="Sample list"
+                       help="CSV with SRR IDs in the first column or plain text with one SRR per line."/>
+            </when>
+
+            <when value="typed">
+                <param name="srr_text" type="text" area="true" value="" optional="true"
+                       label="SRR accessions"
+                       help="Paste one or more SRR accessions, separated by commas, spaces or newlines.
+                             Example: SRR9295900, SRR9295905, SRR9295906, SRR9295907, SRR9295908">
+                </param>
+            </when>
+
+            <when value="filter_only">
+                <!-- No sample input needed; the metadata filter below selects everything -->
+            </when>
+        </conditional>
+
+        <param name="genome" type="select" label="Genome assembly"
+               help="Reference genome the bigWig files were aligned to.">
+            <option value="hg38" selected="true">hg38 - Human (GRCh38)</option>
+            <option value="mm10">mm10 - Mouse (GRCm38)</option>
+            <option value="dm3"> dm3 - Fruitfly (BDGP R5)</option>
+            <option value="ce10">ce10 - Worm (WS220)</option>
+            <option value="sacCer3">sacCer3 - Yeast (SacCer_Apr2011)</option>
+            <option value="rn7">rn6 - Rat (RGSC 6.0)</option>
+        </param>
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!--             METADATA FILTER                 -->
+        <!-- ═══════════════════════════════════════════ -->
 
         <param name="metadata_filter" type="text" value="" optional="true"
-               label="Filter samples from metadata (optional)"
-               help="Select samples by metadata values. Format: COL=VAL, COL=A|B (OR within field), comma-separated (AND across fields). Example: CELL_LINE=HEK293,CONDITION=High"/>
+               label="Filter samples by metadata (optional)"
+               help="Narrow your sample set using metadata column values. Works on its own or combined with a sample list.
 
-        <param name="genome" type="select" label="Genome assembly">
-            <option value="hg38" selected="true">hg38 (Human)</option>
-            <option value="mm10">mm10 (Mouse)</option>
-            <option value="mm39">mm39 (Mouse)</option>
-            <option value="danRer11">danRer11 (Zebrafish)</option>
-            <option value="dm6">dm6 (Drosophila)</option>
-            <option value="sacCer3">sacCer3 (Yeast)</option>
-            <option value="rn6">rn6 (Rat)</option>
-        </param>
+Format: COLUMN=value or COLUMN=val1/val2 (OR within one field). Comma-separate for AND across fields.
 
-        <param name="with_aggregates" type="boolean" checked="true"
-               truevalue="--with-aggregates" falsevalue=""
-               label="Include strand overlays"
-               help="Per-sample transparent overlay of forward + reverse strands."/>
+Available columns and example values:
+  • LIBRARYTYPE       = Ribo-Seq, RNA-Seq, CLIP, QTI-Seq, RiboTag
+  • TISSUE            = Bone, Ovary, Testis, Blastula, Gastrula
+  • CELL_LINE         = HEK293, U2OS, HeLa, A549, Neuroblast
+  • CONDITION         = Control, Mutant, KO, KD, Wild Type, Test
+  • INHIBITOR         = Cycloheximide, Harringtonine, Lactimidomycin, Frozen
+  • REPLICATE         = 1, 2, 3
 
-        <param name="with_regions" type="boolean" checked="true"
-               truevalue="--with-regions" falsevalue=""
-               label="Include region annotations"
-               help="Include bigBed region tracks (e.g. ORFs) if available."/>
+Examples:
+  CELL_LINE=HEK293                           → all HEK293 samples
+  CONDITION=Control/TEST                     → stress OR starvation
+  CELL_LINE=HEK293,CONDITION=Control         → HEK293 AND control
+  INHIBITOR=Cyloheximide/Harringtonine       → cycloheximide OR harringtonine treated"/>
 
-        <section name="kinds" title="Read types to include" expanded="true">
-            <param name="kind_all" type="boolean" checked="true" label="All reads"
-                   help="Combined unique + multimapped signal."/>
-            <param name="kind_unique" type="boolean" checked="true" label="Unique reads"
-                   help="Uniquely mapped reads only."/>
-            <param name="kind_multi" type="boolean" checked="true" label="Multimapped reads"
-                   help="Multimapped reads only."/>
+        <!-- ═══════════════════════════════════════════ -->
+        <!--              TRACK SELECTION                -->
+        <!-- ═══════════════════════════════════════════ -->
+
+        <section name="tracks" title="Track selection" expanded="true">
+
+            <param name="with_aggregates" type="boolean" checked="true"
+                   truevalue="--with-aggregates" falsevalue=""
+                   label="Include strand overlays"
+                   help="Overlays forward and reverse strand signal in a single track per sample using a transparent multiWig view. Useful for quickly spotting strand-specific translation activity without switching between tracks."/>
+
+            <param name="with_regions" type="boolean" checked="true"
+                   truevalue="--with-regions" falsevalue=""
+                   label="Include region annotations (bigBed)"
+                   help="Displays ORF annotation tracks (bigBed) alongside the signal if available for the sample. Shows translated regions, uORFs and other features detected by the RiboSeqOrg pipeline."/>
+
+            <section name="kinds" title="Read types to include" expanded="true">
+                <param name="kind_all" type="boolean" checked="true"
+                       label="All reads"
+                       help="Combined unique + multimapped signal. This is the default and usually what you want for an overview."/>
+                <param name="kind_unique" type="boolean" checked="true"
+                       label="Unique reads only"
+                       help="Uniquely mapped reads. Higher confidence per-position but may underrepresent repetitive regions."/>
+                <param name="kind_multi" type="boolean" checked="true"
+                       label="Multimapped reads only"
+                       help="Reads mapping to multiple genomic locations. Useful for examining signal at paralogs, pseudogenes and repeat elements."/>
+            </section>
+
         </section>
 
-        <param name="hub_name" type="text" value="" optional="true"
-               label="Hub name (optional)"
-               help="Default: RiboSeqHub. Changes the hub filename and UCSC identifier. No spaces.">
-            <validator type="regex" message="No spaces allowed">^(\S+)?$</validator>
-        </param>
+        <!-- ═══════════════════════════════════════════ -->
+        <!--               OPTIONS                       -->
+        <!-- ═══════════════════════════════════════════ -->
 
-        <param name="dry_run" type="boolean" checked="false"
-               truevalue="--dry-run" falsevalue=""
-               label="Dry run"
-               help="Preview what would be built without writing any files."/>
+        <section name="options" title="Hub options" expanded="false">
+
+            <param name="hub_name" type="text" value="" optional="true"
+                   label="Hub name"
+                   help="Custom identifier for the generated hub (default: RiboSeqHub). Used as the filename and the label shown in the GWIPS-viz hub list. No spaces allowed.">
+                <validator type="regex" message="Hub name cannot contain spaces.">^(\S+)?$</validator>
+            </param>
+
+            <param name="dry_run" type="boolean" checked="false"
+                   truevalue="--dry-run" falsevalue=""
+                   label="Dry run (preview only)"
+                   help="Shows how many samples were found, which bigWig files matched and what the hub would contain, without writing any files. Run this first when working with large sample sets to check your filter before committing to a full build."/>
+
+        </section>
+
     </inputs>
 
     <outputs>
-        <data name="hub_output" format="txt" label="${tool.name} on ${on_string}: Hub URL">
-            <filter>not dry_run</filter>
+        <data name="hub_output" format="txt" label="${tool.name}: hub URL${' ('+$options.hub_name+')' if $options.hub_name else ''}">
+            <filter>not options['dry_run']</filter>
         </data>
     </outputs>
 
     <help><![CDATA[
-**RiboHub: Generate Gwips Track Hub**
+.. class:: infomark
 
-Builds a Gwips track hub from sorted bigWig files produced by the RiboSeqOrg pipeline.
+**What is RiboHub?**
 
------
+RiboHub generates UCSC Genome Browser track hubs from ribosome profiling (Ribo-seq)
+bigWig files produced by the RiboSeqOrg pipeline. The resulting hub can be loaded
+directly into **GWIPS-viz** or the standard UCSC browser to visualise translation
+data in genomic context.
 
-**How to use**
+------
 
-Upload a sample list (CSV or text file with SRR IDs), or use the metadata filter
-to select samples by their properties, or both. Leave the sample list empty and
-just fill in the filter to select by metadata only.
+**Quick start**
 
------
+1. Choose how to provide samples: type SRR accessions directly, upload a file,
+   or let the metadata filter select them for you.
+2. Pick the genome assembly your data was aligned to.
+3. Click **Execute**. The output is a URL, paste it into GWIPS-viz under
+   *My Hubs → paste URL* to load the hub.
 
-**What you get**
+------
 
-A **Hub URL** in your Galaxy history. Copy it and paste into GWIPS-viz under
-My Data -> Track Hubs -> My Hubs.
+**Providing samples**
 
-Each run generates a unique URL so previous hubs are never overwritten.
+You have three options:
 
------
+- **Type SRR accessions**: paste accessions like ``SRR9295900, SRR9295905``
+  directly into the text box. Commas, spaces and newlines all work as separators.
+- **Upload a file**: a CSV (SRR IDs in the first column) or plain text
+  (one SRR per line).
+- **Metadata filter only**: skip the sample list entirely and let the filter
+  select samples based on their metadata properties.
 
-**Metadata filter examples**
+You can combine a sample list with a metadata filter to narrow further: only
+samples appearing in *both* the list and the filter will be included.
 
-- ``CELL_LINE=HEK293`` — all HEK293 samples
-- ``CONDITION=High|Test`` — High OR Test condition
-- ``CELL_LINE=HEK293,CONDITION=High`` — HEK293 AND High condition
-- ``TISSUE=Kidney,LIBRARYTYPE=Ribo-Seq`` — kidney Ribo-Seq samples
+------
+
+**Track types explained**
+
+*Strand overlays*
+    Forward and reverse strand signal rendered as a transparent overlay in a
+    single track per sample (multiWig). The default Okabe-Ito colourblind-safe
+    palette uses orange for forward and blue for reverse. This is the fastest
+    way to spot strand-specific translation.
+
+*Region annotations (bigBed)*
+    ORF annotations from the RiboSeqOrg pipeline displayed as coloured blocks
+    beneath the signal tracks. Includes annotated CDS, upstream ORFs (uORFs),
+    downstream ORFs and novel translation events.
+
+*Read types*
+    - **All** = combined unique + multimapped signal (start here).
+    - **Unique** = uniquely mapped only (higher confidence per position).
+    - **Multi** = multimapped only (useful for repetitive regions and paralogs).
+
+------
+
+**Metadata filter**
+
+The metadata filter lets you select samples by their biological properties
+without needing to look up individual SRR accessions. The filter operates on
+the RiboSeqOrg metadata CSV hosted on the server.
+
+*Syntax*
+
+::
+
+    COLUMN=value                       single value
+    COLUMN=value1/value2               OR within one column
+    COL1=val,COL2=val                  AND across columns
+
+*Available columns*
+
+================ =====================================================
+Column           Example values
+================ =====================================================
+LIBRARYTYPE      Ribo-Seq, RNA-Seq, CLIP, QTI-Seq, RiboTag
+TISSUE           Bone, Ovary, Testis, Blastula, Gastrula
+CELL_LINE        HEK293, U2OS, HeLa, A549, Neuroblast
+CONDITION        Control, Mutant, KO, KD, Wild Type, Test
+INHIBITOR        Cycloheximide, Harringtonine, Lactimidomycin, Frozen
+REPLICATE        1, 2, 3
+================ =====================================================
+
+*Examples*
+
+::
+
+    CELL_LINE=HEK293
+    → all HEK293 samples regardless of condition
+
+    CONDITION=High/Test
+    → samples Test OR High
+
+    CELL_LINE=HEK293,CONDITION=Control
+    → HEK293 control samples only
+
+    INHIBITOR=Cycloheximide/Harringtonine,TISSUE=Bone
+    → bone samples treated with cycloheximide or harringtonine
+
+------
+
+**Dry run**
+
+Enable *Dry run* under Hub options to preview sample counts, matched bigWig
+files and hub structure without generating anything. Recommended before building
+hubs from broad metadata filters that may match hundreds of samples.
+
+------
+
+**Tips**
+
+- Hub names cannot contain spaces. Use underscores or hyphens instead
+  (e.g. ``HEK293_CHX_timecourse``).
+- If no samples match your filter, the tool will report zero matches and exit
+  cleanly. Check column names and values for typos.
+- All columns and values are **case-sensitive**: use ``HEK293`` not ``hek293``.
+- The strand overlay is the most useful single view for quick inspection.
+  Start there and drill into individual read types if needed.
     ]]></help>
+
 </tool>
